@@ -201,14 +201,6 @@ Enable verbose logging by setting the log level in the app:
 - Go to Settings > Developer Options > Logging Level
 - Set to "Debug" or "Verbose" for detailed IPP transaction logs
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes following the established code style
-4. Add tests for new functionality
-5. Submit a pull request with a clear description
-
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
