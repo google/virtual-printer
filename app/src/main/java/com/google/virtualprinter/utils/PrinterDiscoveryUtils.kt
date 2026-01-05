@@ -527,28 +527,7 @@ object PrinterDiscoveryUtils {
                     continue
                 }
             }
-
-            // If all endpoints failed, try a simple IPP test
-            try {
-                val url = URL("http://${printer.address.hostAddress}:${printer.port}/")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.instanceFollowRedirects = true
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
-
-                connection.connect()
-                val responseCode = connection.responseCode
-
-                if (responseCode in 300..399) {
-                    val location = connection.getHeaderField("Location")
-                    return@withContext "Printer is reachable but redirects (code: $responseCode). This is normal for many HP printers. Location: ${location ?: "not provided"}"
-                } else {
-                    return@withContext "Connection test completed. Response code: $responseCode"
-                }
-            } catch (e: Exception) {
-                return@withContext "Failed to test connection: ${e.message}"
-            }
+            return@withContext "Failed to connect to printer on any known endpoint. Printer may be offline or unreachable."
         }
     }
     
