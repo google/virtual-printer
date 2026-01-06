@@ -39,6 +39,7 @@ import com.hp.jipp.encoding.AttributeGroup
 import com.hp.jipp.model.MediaCol
 import com.hp.jipp.model.MediaColDatabase
 import com.hp.jipp.model.Operation
+import com.hp.jipp.model.Sides
 import com.hp.jipp.model.Status
 import com.hp.jipp.model.Types
 import com.hp.jipp.model.PrinterState
@@ -939,6 +940,13 @@ class PrinterService(private val context: Context) {
                   mediaRightMargin = 0,
                 ),
               )
+            ),
+
+            // Duplex support
+            Types.sidesSupported.of(
+              Sides.oneSided,
+              Sides.twoSidedShortEdge,
+              Sides.twoSidedLongEdge
             ),
 
             // Job attributes
