@@ -946,7 +946,7 @@ class PrinterService(private val context: Context) {
             Types.sidesSupported.of(
               Sides.oneSided,
               Sides.twoSidedShortEdge,
-              Sides.twoSidedLongEdge
+              Sides.twoSidedLongEdge,
             ),
 
             // Job attributes
