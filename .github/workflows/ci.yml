@@ -1,0 +1,31 @@
+name: Android CI
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  build:
+
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: set up JDK 25
+      uses: actions/setup-java@v4
+      with:
+        java-version: '25'
+        distribution: 'temurin'
+
+    # Download Android SDK
+    - name: Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: Build with Gradle
+      run: ./gradlew build
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: virtual-printer.apk
+        path: app/build/outputs/apk/release/app-release-unsigned.apk
