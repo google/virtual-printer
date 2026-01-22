@@ -19,7 +19,9 @@ package com.google.virtualprinter.printer
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.SystemClock
 import android.util.Log
+import androidx.compose.runtime.getValue
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
@@ -60,7 +62,10 @@ import com.google.virtualprinter.plugins.PluginFramework
 import com.google.virtualprinter.queue.PrintJob
 import com.google.virtualprinter.queue.PrintJobQueue
 import com.google.virtualprinter.queue.PrintJobState
+import com.hp.jipp.encoding.Attribute
 import com.hp.jipp.model.JobState
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import java.io.InputStream
 import kotlin.time.Duration.Companion.seconds
 
 class PrinterService(private val context: Context) {
@@ -440,7 +445,7 @@ class PrinterService(private val context: Context) {
                 ?.toString()
                 ?: "Send Document"
 
-        return userName to jobName
+        return Pair(userName,jobName)
     }
 
     private fun buildJobAttributes(
@@ -449,24 +454,49 @@ class PrinterService(private val context: Context) {
         jobState: JobState,
         jobStateReason: String,
         jobName: String,
-        userName: String
+        userName: String,
+        printerUpTimeSeconds: Int
     ): AttributeGroup {
 
-        val now = (System.currentTimeMillis() / 1000).toInt()
+        val attrs = mutableListOf<Attribute<*>>()
+
+        // Always present attributes
+        attrs += Types.jobId.of(jobId)
+        attrs += Types.jobUri.of(URI("ipp://localhost:$PORT/jobs/$jobId"))
+        attrs += Types.jobState.of(jobState)
+        attrs += Types.jobStateReasons.of(jobStateReason)
+        attrs += Types.jobOriginatingUserName.of(userName)
+        attrs += Types.jobName.of(jobName)
+        attrs += Types.documentFormat.of(documentFormat)
+
+        // time-at-creation: always valid (seconds since printer boot)
+        attrs += Types.timeAtCreation.of(printerUpTimeSeconds)
+
+        // time-at-processing: only when job has started processing
+        attrs += if (jobState == JobState.processing || jobState == JobState.completed) {
+            Types.timeAtProcessing.of(printerUpTimeSeconds)
+        } else {
+            Types.timeAtProcessing.noValue()
+        }
+
+        // time-at-completed: only when job is completed
+        attrs += if (jobState == JobState.completed) {
+            Types.timeAtCompleted.of(printerUpTimeSeconds)
+        } else {
+            Types.timeAtCompleted.noValue()
+        }
+
+        // impressions-completed: reflect real progress
+        val impressionsCompleted = if (jobState == JobState.completed) {
+            1
+        } else {
+            0
+        }
+        attrs += Types.impressionsCompleted.of(impressionsCompleted)
 
         return AttributeGroup.groupOf(
             Tag.jobAttributes,
-            Types.jobId.of(jobId.toInt()),
-            Types.jobUri.of(URI("ipp://localhost:$PORT/jobs/$jobId")),
-            Types.jobState.of(jobState),
-            Types.jobStateReasons.of(jobStateReason),
-            Types.timeAtCompleted.of(now),
-            Types.timeAtCreation.of(now),
-            Types.timeAtProcessing.of(now),
-            Types.impressionsCompleted.of(1),
-            Types.jobOriginatingUserName.of(userName),
-            Types.jobName.of(jobName),
-            Types.documentFormat.of(documentFormat)
+            *attrs.toTypedArray()
         )
     }
     
@@ -610,6 +640,12 @@ class PrinterService(private val context: Context) {
                         
                         // Create a success response with job attributes
                         val (userName, jobName) = extractJobInfoFromRequest(request)
+                        val printerUpTimeSeconds = (SystemClock.elapsedRealtime() / 1000).toInt()
+//                        val totalPages = resolveTotalPages(
+//                                request = request,
+//                                documentFormat = documentFormat,
+//                                documentStream = documentInputStream
+//                            )
 
                         val response = IppPacket(
                             Status.successfulOk,
@@ -625,7 +661,8 @@ class PrinterService(private val context: Context) {
                                 jobState = JobState.completed,
                                 jobStateReason = "job-completed-successfully",
                                 jobName = jobName,
-                                userName = userName
+                                userName = userName,
+                                printerUpTimeSeconds = printerUpTimeSeconds
                             )
                         )
                         logger.i(LogCategory.PRINT_JOB, TAG, "Accepted Print-Job", jobId = jobId,
@@ -653,6 +690,7 @@ class PrinterService(private val context: Context) {
                     } else {
                         // Return job attributes with COMPLETED state
                         val (userName, jobName) = extractJobInfoFromRequest(request)
+                        val printerUpTimeSeconds = (SystemClock.elapsedRealtime() / 1000).toInt()
 
                         val response = IppPacket(
                             Status.successfulOk,
@@ -668,7 +706,8 @@ class PrinterService(private val context: Context) {
                                 jobState = JobState.completed,
                                 jobStateReason = "job-completed-successfully",
                                 jobName = "Print Job $jobId",
-                                userName = userName
+                                userName = userName,
+                                printerUpTimeSeconds = printerUpTimeSeconds
                             )
                         )
                         Log.d(TAG, "Get-Job-Attributes for job $jobId: returning COMPLETED state")
@@ -783,6 +822,7 @@ class PrinterService(private val context: Context) {
                         
                         // Create a success response with job attributes
                         val (userName, jobName) = extractJobInfoFromRequest(request)
+                        val printerUpTimeSeconds = (SystemClock.elapsedRealtime() / 1000).toInt()
 
                         val response = IppPacket(
                             Status.successfulOk,
@@ -800,7 +840,8 @@ class PrinterService(private val context: Context) {
                                 jobStateReason =
                                     if (isLastDocument) "job-completed-successfully" else "job-incoming",
                                 jobName = jobName,
-                                userName = userName
+                                userName = userName,
+                                printerUpTimeSeconds = printerUpTimeSeconds
                             )
                         )
                         

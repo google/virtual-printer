@@ -148,6 +148,43 @@ fun SettingsScreen(
     ) { uri: Uri? ->
         uri?.let { handleExportAttributes(context, it, printerService) }
     }
+    var useDefaultAttributes by remember { mutableStateOf(false) }
+    val createFileLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json")
+        ) { uri: Uri? ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    selectedPrinter?.let { printer ->
+                        val attributes = if (useDefaultAttributes) {
+                            PrinterDiscoveryUtils.queryPrinterWithAlternatives(printer)
+                        } else {
+                            PrinterDiscoveryUtils.queryPrinterAttributes(printer)
+                                ?: PrinterDiscoveryUtils.createMinimalAttributes(printer)
+                        }
+
+                        if (attributes != null) {
+                            val success =
+                                PrinterDiscoveryUtils.exportPrinterAttributesToFile(
+                                    context,
+                                    attributes,
+                                    uri
+                                )
+
+                            android.widget.Toast.makeText(
+                                context,
+                                if (success)
+                                    "Printer attributes saved successfully"
+                                else
+                                    "Failed to save printer attributes",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                    showPrinterSaveDialog = false
+                }
+            }
+        }
     
     // Refresh job count when settings screen is shown
     LaunchedEffect(Unit) {
@@ -788,10 +825,12 @@ fun SettingsScreen(
                                         onClick = {
                                             isTestingConnectivity = true
                                             coroutineScope.launch {
-                                                val result = selectedPrinter?.let { printer ->
-                                                    PrinterDiscoveryUtils.testPrinterConnectivity(printer)
-                                                } ?: "No printer selected"
-                                                connectivityResult = result
+                                                val isAvailable = selectedPrinter?.let {
+                                                    PrinterDiscoveryUtils.isPrinterReachable(it)
+                                                } ?: false
+                                                connectivityResult =
+                                                    if (isAvailable) "Printer is available"
+                                                    else "Printer is not reachable"
                                                 showTestConnectivity = true
                                                 isTestingConnectivity = false
                                             }
@@ -920,7 +959,7 @@ fun SettingsScreen(
     // Save Printer Attributes Dialog
     if (showPrinterSaveDialog) {
         var saveFilename by remember { mutableStateOf("printer_${selectedPrinter?.name?.replace(" ", "_")?.lowercase() ?: "unknown"}_${System.currentTimeMillis()}.json") }
-        var useDefaultAttributes by remember { mutableStateOf(false) }
+//        var useDefaultAttributes by remember { mutableStateOf(false) }
         
         AlertDialog(
             onDismissRequest = { showPrinterSaveDialog = false },
@@ -938,7 +977,8 @@ fun SettingsScreen(
                         onValueChange = { saveFilename = it },
                         label = { Text("Filename") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        readOnly = true
                     )
                     
                     // Option to use default attributes if actual query failed
@@ -961,44 +1001,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        coroutineScope.launch {
-                            selectedPrinter?.let { printer ->
-                                val attributes = if (useDefaultAttributes) {
-                                    // Always use alternative method which creates defaults if needed
-                                    PrinterDiscoveryUtils.queryPrinterWithAlternatives(printer)
-                                } else {
-                                    // Try regular query first
-                                    PrinterDiscoveryUtils.queryPrinterAttributes(printer) 
-                                        ?: PrinterDiscoveryUtils.createMinimalAttributes(printer)
-                                }
-                                
-                                if (attributes != null) {
-                                    val success = PrinterDiscoveryUtils.exportPrinterAttributesToFile(
-                                        context, 
-                                        attributes, 
-                                        saveFilename
-                                    )
-                                    
-                                    if (success) {
-                                        // Refresh the list of available attribute files
-                                        availableAttributeFiles = IppAttributesUtils.getAvailableIppAttributeFiles(context)
-                                        
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "Printer attributes saved successfully",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "Failed to save printer attributes",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                            }
-                            showPrinterSaveDialog = false
-                        }
+                        createFileLauncher.launch(saveFilename)
                     }
                 ) {
                     Text("Save")
@@ -1024,17 +1027,17 @@ private fun handleImportAttributes(
     try {
         context.contentResolver.openInputStream(uri)?.use { inputStream ->
             val jsonString = inputStream.bufferedReader().use { it.readText() }
-            
+
             // Create a temporary file and use IppAttributesUtils to handle both array and object formats
             val tempFilename = "temp_import_${UUID.randomUUID()}.json"
             val attributesDir = File(context.filesDir, "ipp_attributes")
             if (!attributesDir.exists()) {
                 attributesDir.mkdirs()
             }
-            
+
             val tempFile = File(attributesDir, tempFilename)
             var attributes: List<AttributeGroup>? = null
-            
+
             try {
                 // Write temp file and use loadIppAttributes which handles multiple formats
                 tempFile.writeText(jsonString)
@@ -1046,16 +1049,16 @@ private fun handleImportAttributes(
                     tempFile.delete()
                 }
             }
-            
+
             if (attributes != null && attributes.isNotEmpty()) {
                 // Perform detailed validation
                 val isValid = IppAttributesUtils.validateIppAttributes(attributes)
                 Log.d("SettingsScreen", "Attribute validation result: $isValid")
-                
+
                 if (isValid) {
                     val filename = "ipp_attributes_${System.currentTimeMillis()}.json"
                     Log.d("SettingsScreen", "Attempting to save attributes to: $filename")
-                    
+
                     if (IppAttributesUtils.saveIppAttributes(context, attributes, filename)) {
                         // Test if attributes can be loaded back successfully
                         val reloadedAttributes = IppAttributesUtils.loadIppAttributes(context, filename)

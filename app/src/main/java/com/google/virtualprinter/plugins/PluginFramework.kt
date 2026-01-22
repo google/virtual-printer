@@ -1580,9 +1580,6 @@ class AttributeOverridePlugin : PrinterPlugin {
                             val attrName = customAttrNames.next()
                             val attrValue = customJson.get(attrName)
 
-                            // Remove any existing attribute with this name
-                            modifiedAttributes.removeAll { it.name == attrName }
-
                             // Create attribute based on value type
                             val newAttr = when (attrValue) {
                                 is org.json.JSONArray -> {
@@ -1621,11 +1618,11 @@ class AttributeOverridePlugin : PrinterPlugin {
                                 }
                                 is Number -> {
                                     // Single number value
-                                    createCustomAttribute(attrName, attrValue.toString())
+                                    createCustomAttribute(attrName, attrValue)
                                 }
                                 is Boolean -> {
                                     // Single boolean value
-                                    createCustomAttribute(attrName, attrValue.toString())
+                                    createCustomAttribute(attrName, attrValue)
                                 }
                                 else -> {
                                     // Other types - convert to string
@@ -1638,8 +1635,15 @@ class AttributeOverridePlugin : PrinterPlugin {
                             }
 
                             if (newAttr != null) {
+                                // Remove any existing attribute with this name
+                                modifiedAttributes.removeAll { it.name == attrName }
                                 modifiedAttributes.add(newAttr)
                                 Log.d("AttributeOverridePlugin", "Added custom attribute: $attrName = $attrValue")
+                            }else{
+                                Log.w(
+                                    "AttributeOverridePlugin",
+                                    "Failed to create attribute: $attrName from value: $attrValue. Keeping existing value."
+                                )
                             }
                         }
 
@@ -1682,16 +1686,33 @@ class AttributeOverridePlugin : PrinterPlugin {
      * Helper function to create a custom attribute from a single value
      * Uses IppAttributesUtils for attribute creation
      */
-    private fun createCustomAttribute(name: String, value: String): com.hp.jipp.encoding.Attribute<*>? {
+    private fun createCustomAttribute(name: String, value: Any): com.hp.jipp.encoding.Attribute<*>? {
         return try {
-            // Use IppAttributesUtils to create the attribute
-            // Determine type by trying to parse the value
-            val type = when {
-                value.toIntOrNull() != null -> "INTEGER"
-                value.equals("true", ignoreCase = true) || value.equals("false", ignoreCase = true) -> "BOOLEAN"
-                else -> "STRING"
+            when (value) {
+                is Int -> {
+                    IppAttributesUtils.createAttribute(name, value, "INTEGER")
+                }
+
+                is Long -> {
+                    IppAttributesUtils.createAttribute(name, value, "INTEGER")
+                }
+
+                is Boolean -> {
+                    IppAttributesUtils.createAttribute(name, value, "BOOLEAN")
+                }
+
+                is String -> {
+                    IppAttributesUtils.createAttribute(name, value, "STRING")
+                }
+
+                else -> {
+                    Log.w(
+                        "AttributeOverridePlugin",
+                        "Unsupported value type for attribute $name: ${value::class.java.simpleName}"
+                    )
+                    null
+                }
             }
-            IppAttributesUtils.createAttribute(name, value, type)
         } catch (e: Exception) {
             Log.e("AttributeOverridePlugin", "Error creating custom attribute $name", e)
             null

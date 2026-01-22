@@ -17,6 +17,7 @@
 package com.google.virtualprinter.utils
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.hp.jipp.encoding.Attribute
 import com.hp.jipp.encoding.AttributeGroup
@@ -32,6 +33,7 @@ import java.io.IOException
 import java.util.NoSuchElementException
 import java.util.ListIterator
 import io.ktor.server.response.*
+import java.io.OutputStream
 
 object IppAttributesUtils {
     private const val TAG = "IppAttributesUtils"
@@ -42,6 +44,47 @@ object IppAttributesUtils {
     /**
      * Saves IPP attributes to a JSON file
      */
+    fun saveIppAttributes(
+        outputStream: OutputStream,
+        attributes: List<AttributeGroup>
+    ): Boolean {
+        return try {
+            val jsonArray = buildAttributesJson(attributes)
+
+            outputStream.use {
+                it.write(jsonArray.toString().toByteArray())
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving IPP attributes to stream", e)
+            false
+        }
+    }
+    private fun buildAttributesJson(
+        attributes: List<AttributeGroup>
+    ): JSONArray {
+        val jsonArray = JSONArray()
+
+        attributes.forEach { group ->
+            val groupObj = JSONObject().apply {
+                put("tag", group.tag.name)
+                put("attributes", JSONArray().apply {
+                    val attributesInGroup = getAttributesFromGroup(group)
+                    attributesInGroup.forEach { attr ->
+                        put(JSONObject().apply {
+                            put("name", attr.name)
+                            put("value", attr.toString())
+                            put("type", getAttributeType(attr))
+                        })
+                    }
+                })
+            }
+            jsonArray.put(groupObj)
+        }
+
+        return jsonArray
+    }
+
     fun saveIppAttributes(context: Context, attributes: List<AttributeGroup>, filename: String): Boolean {
         try {
             val attributesDir = File(context.filesDir, CUSTOM_ATTRIBUTES_DIR)
@@ -50,24 +93,7 @@ object IppAttributesUtils {
             }
             
             val file = File(attributesDir, filename)
-            val jsonArray = JSONArray()
-            
-            attributes.forEach { group ->
-                val groupObj = JSONObject().apply {
-                    put("tag", group.tag.name)
-                    put("attributes", JSONArray().apply {
-                        val attributesInGroup = getAttributesFromGroup(group)
-                        attributesInGroup.forEach { attr ->
-                            put(JSONObject().apply {
-                                put("name", attr.name)
-                                put("value", attr.toString())
-                                put("type", getAttributeType(attr))
-                            })
-                        }
-                    })
-                }
-                jsonArray.put(groupObj)
-            }
+            val jsonArray = buildAttributesJson(attributes)
             
             FileOutputStream(file).use { it.write(jsonArray.toString().toByteArray()) }
             Log.d(TAG, "Saved IPP attributes to: ${file.absolutePath}")
@@ -109,21 +135,39 @@ object IppAttributesUtils {
     /**
      * Creates an attribute from name, value and type
      */
-    fun createAttribute(name: String, value: String, type: String): Attribute<*>? {
+    fun createAttribute(name: String, value: Any, type: String): Attribute<*>? {
         try {
-            // Create basic attribute without relying on Types.of()
-            val typedValue = when (type.uppercase()) {
-                "INTEGER" -> value.toIntOrNull() ?: return null
-                "BOOLEAN" -> value.equals("true", ignoreCase = true)
-                else -> value
-            }
-            
-            // Create attribute directly
-            return when (typedValue) {
-                is String -> StringAttribute(name, typedValue)
-                is Int -> IntAttribute(name, typedValue)
-                is Boolean -> BooleanAttribute(name, typedValue)
-                else -> null
+            when (type.uppercase()) {
+
+                "INTEGER" -> when (value) {
+                    is Int -> IntAttribute(name, value)
+                    is Long -> IntAttribute(name, value.toInt()) // if IPP only supports Int
+                    else -> {
+                        Log.w(TAG, "Expected INTEGER for $name but got ${value::class.java.simpleName}")
+                        null
+                    }
+                }
+
+                "BOOLEAN" -> when (value) {
+                    is Boolean -> BooleanAttribute(name, value)
+                    else -> {
+                        Log.w(TAG, "Expected BOOLEAN for $name but got ${value::class.java.simpleName}")
+                        null
+                    }
+                }
+
+                "STRING" -> when (value) {
+                    is String -> StringAttribute(name, value)
+                    else -> {
+                        Log.w(TAG, "Expected STRING for $name but got ${value::class.java.simpleName}")
+                        null
+                    }
+                }
+
+                else -> {
+                    Log.w(TAG, "Unsupported attribute type $type for $name")
+                    null
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error creating attribute: $name", e)

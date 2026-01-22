@@ -17,9 +17,11 @@
 package com.google.virtualprinter.utils
 
 import android.content.Context
+import android.net.Uri
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
+import androidx.core.net.toFile
 import com.hp.jipp.encoding.IppPacket
 import com.hp.jipp.encoding.IppOutputStream
 import com.hp.jipp.encoding.IppInputStream
@@ -37,7 +39,9 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.Socket
 import java.net.URI
 import java.net.URL
 import java.security.SecureRandom
@@ -50,6 +54,7 @@ import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import kotlin.text.startsWith
+
 
 /**
  * Utility class for discovering and querying network printers
@@ -446,6 +451,23 @@ object PrinterDiscoveryUtils {
         
         return listOf(printerAttributes)
     }
+    suspend fun isPrinterReachable(printer: NetworkPrinter): Boolean =
+        withContext(Dispatchers.IO) {
+
+            withContext(Dispatchers.IO) {
+                try {
+                    Socket().use {
+                        it.connect(
+                            InetSocketAddress(printer.address, printer.port),
+                            3000
+                        )
+                    }
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+        }
     
     /**
      * Tries to reach the printer using HTTP instead of IPP
@@ -552,27 +574,16 @@ object PrinterDiscoveryUtils {
     fun exportPrinterAttributesToFile(
         context: Context,
         attributes: List<AttributeGroup>,
-        filename: String
+        outputUri: Uri
     ): Boolean {
         return try {
-            val safeFilename = sanitizeFilename(filename)
-            Log.d(
-                TAG,
-                "Exporting ${attributes.size} attribute groups to IPP attributes file: $safeFilename"
-            )
+            Log.d(TAG, "Exporting ${attributes.size} attribute groups to Uri: $outputUri")
 
-            val saved = IppAttributesUtils.saveIppAttributes(
-                context = context,
-                attributes = attributes,
-                filename = safeFilename
-            )
-
-            if (!saved) {
-                Log.e(TAG, "saveIppAttributes reported failure when exporting to $safeFilename")
-            }
-            saved
+            context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
+                IppAttributesUtils.saveIppAttributes(outputStream, attributes)
+            } ?: false
         } catch (e: Exception) {
-            Log.e(TAG, "Error exporting printer attributes to file", e)
+            Log.e(TAG, "Error exporting printer attributes", e)
             false
         }
     }
