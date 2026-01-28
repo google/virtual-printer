@@ -22,17 +22,8 @@
         Restricted to local network and localhost only for security.
     -->
     <domain-config cleartextTrafficPermitted="true">
-        <!-- Allow localhost for testing and local printer discovery -->
         <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">::1</domain>
-        
-        <!-- Allow .local domains for mDNS/Bonjour printer discovery -->
-        <domain includeSubdomains="true">local</domain>
-        
-        <!-- Allow private IP ranges for local network printers -->
-        <!-- Note: Android network security config doesn't support IP ranges directly,
-             but .local domain covers most mDNS discovered devices -->
     </domain-config>
     
     <!-- Default: No cleartext traffic for external domains -->

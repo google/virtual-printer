@@ -67,6 +67,7 @@ fun PluginManagementScreen(
     var showPluginDetails by remember { mutableStateOf(false) }
     var showConfigDialog by remember { mutableStateOf(false) }
     var pluginToConfig by remember { mutableStateOf<PluginMetadata?>(null) }
+    var refreshKey by remember { mutableStateOf(0) }
     
     Scaffold(
         topBar = {
@@ -89,10 +90,20 @@ fun PluginManagementScreen(
                 actions = {
                     IconButton(
                         onClick = {
-                            // Reload all plugins
+                            // Reload plugin state
                             coroutineScope.launch {
-                                logger.i(LogCategory.SYSTEM, "PluginManagementScreen", 
-                                    "Reloading plugin framework")
+                                pluginFramework.refreshState()
+                                refreshKey++
+                                logger.i(
+                                    LogCategory.SYSTEM,
+                                    "PluginManagementScreen",
+                                    "Manually refreshed plugin state (key=$refreshKey)"
+                                )
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Plugin state refreshed",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
                             }
                         }
                     ) {
@@ -134,6 +145,7 @@ fun PluginManagementScreen(
                         plugin = plugin,
                         printerService = printerService,
                         pluginFramework = pluginFramework,
+                        refreshKey = refreshKey,
                         onUnload = { pluginId ->
                             coroutineScope.launch {
                                 val success = printerService.unloadPlugin(pluginId)
@@ -736,6 +748,7 @@ fun LoadedPluginCard(
     plugin: PluginMetadata,
     printerService: com.google.virtualprinter.printer.PrinterService,
     pluginFramework: PluginFramework,
+    refreshKey: Int,
     onUnload: (String) -> Unit,
     onConfigure: (String) -> Unit
 ) {
@@ -743,9 +756,9 @@ fun LoadedPluginCard(
     val coroutineScope = rememberCoroutineScope()
     
     var configuration by remember { mutableStateOf(mapOf<String, Any>()) }
-    
+
     // Load current configuration
-    LaunchedEffect(plugin.id) {
+    LaunchedEffect(plugin.id, refreshKey) {
         val config = pluginFramework.getPluginConfiguration(plugin.id)
         if (config != null) {
             configuration = config

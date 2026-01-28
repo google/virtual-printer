@@ -17,9 +17,11 @@
 package com.google.virtualprinter.utils
 
 import android.content.Context
+import android.net.Uri
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
+import androidx.core.net.toFile
 import com.hp.jipp.encoding.IppPacket
 import com.hp.jipp.encoding.IppOutputStream
 import com.hp.jipp.encoding.IppInputStream
@@ -37,10 +39,22 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.Socket
 import java.net.URI
 import java.net.URL
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.CopyOnWriteArrayList
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import kotlin.text.startsWith
+
 
 /**
  * Utility class for discovering and querying network printers
@@ -437,37 +451,102 @@ object PrinterDiscoveryUtils {
         
         return listOf(printerAttributes)
     }
+    suspend fun isPrinterReachable(printer: NetworkPrinter): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                Socket().use {
+                    it.connect(
+                        InetSocketAddress(printer.address, printer.port),
+                        3000
+                    )
+                }
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
     
     /**
      * Tries to reach the printer using HTTP instead of IPP
      */
     suspend fun testPrinterConnectivity(printer: NetworkPrinter): String {
         return withContext(Dispatchers.IO) {
-            try {
-                val url = URL("http://${printer.address.hostAddress}:${printer.port}/")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
-                
+            // Try multiple endpoints in order of preference
+            val endpoints = listOf(
+                "/",           // Root path
+                "/ipp/print",  // Standard IPP endpoint
+                "/ipp/",       // Alternative IPP endpoint
+                "/printer"     // Some printers use this
+            )
+
+            for (endpoint in endpoints) {
                 try {
-                    connection.connect()
-                    val responseCode = connection.responseCode
-                    
-                    if (responseCode in 200..299) {
-                        val contentType = connection.contentType ?: "unknown"
-                        "Connected successfully! Response code: $responseCode, Content-Type: $contentType"
-                    } else {
-                        "Connected but received error code: $responseCode"
+                    val url = URL("http://${printer.address.hostAddress}:${printer.port}$endpoint")
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.requestMethod = "GET"
+                    connection.instanceFollowRedirects = true // Enable redirect following
+                    connection.connectTimeout = 5000
+                    connection.readTimeout = 5000
+
+                    try {
+                        connection.connect()
+                        val responseCode = connection.responseCode
+
+                        // Check for redirects
+                        if (responseCode in 300..399) {
+                            val location = connection.getHeaderField("Location")
+                            if (location != null) {
+                                Log.d(TAG, "Redirect detected: $responseCode -> $location")
+                                if (location.startsWith("https://")) {
+                                    val httpsResult =
+                                        followHttpsRedirect(
+                                            location = location,
+                                            allowSelfSigned = printer.address.isSiteLocalAddress
+                                        )
+                                    if (httpsResult != null) {
+                                        return@withContext httpsResult
+                                    }
+                                    return@withContext "Printer redirected to HTTPS but secure verification failed. Response code: $responseCode, Location: $location"
+                                } else if (location.startsWith("http://")) {
+                                    // Try following the redirect manually if needed
+                                    return@withContext "Connected! Printer redirected. Response code: $responseCode, Location: $location"
+                                }
+                            }
+                            // Continue to next endpoint if redirect doesn't provide useful info
+                            continue
+                        }
+                        if (responseCode in 200..299) {
+                            val contentType = connection.contentType ?: "unknown"
+                            return@withContext "Connected successfully! Response code: $responseCode, Content-Type: $contentType, Endpoint: $endpoint"
+                        } else if (responseCode == 401 || responseCode == 403) {
+                            // Authentication required - printer is reachable but needs credentials
+                            return@withContext "Connected! Printer requires authentication (response code: $responseCode). Endpoint: $endpoint"
+                        } else if (responseCode == 404) {
+                            // Not found - try next endpoint
+                            continue
+                        } else {
+                            // Other error codes
+                            val errorMsg = try {
+                                connection.errorStream?.bufferedReader()?.readLine() ?: "Unknown error"
+                            } catch (e: Exception) {
+                                "Error code: $responseCode"
+                            }
+                            return@withContext "Connected but received error code: $responseCode. Endpoint: $endpoint. $errorMsg"
+                        }
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Connection test failed for $endpoint: ${e.message}")
+                        // Continue to next endpoint
+                        continue
+                    } finally {
+                        connection.disconnect()
                     }
                 } catch (e: Exception) {
-                    "Connection error: ${e.message}"
-                } finally {
-                    connection.disconnect()
+                    Log.d(TAG, "Failed to test endpoint $endpoint: ${e.message}")
+                    // Continue to next endpoint
+                    continue
                 }
-            } catch (e: Exception) {
-                "Failed to test connection: ${e.message}"
             }
+            return@withContext "Failed to connect to printer on any known endpoint. Printer may be offline or unreachable."
         }
     }
     
@@ -489,9 +568,93 @@ object PrinterDiscoveryUtils {
     /**
      * Exports the printer attributes to a file
      */
-    fun exportPrinterAttributesToFile(context: Context, attributes: List<AttributeGroup>, filename: String): Boolean {
-        // For now, just log the attributes - can be enhanced later
-        Log.d(TAG, "Would export ${attributes.size} attribute groups to $filename")
-        return true
+    fun exportPrinterAttributesToFile(
+        context: Context,
+        attributes: List<AttributeGroup>,
+        outputUri: Uri
+    ): Boolean {
+        return try {
+            Log.d(TAG, "Exporting ${attributes.size} attribute groups to Uri: $outputUri")
+
+            context.contentResolver.openOutputStream(outputUri)?.use { outputStream ->
+                IppAttributesUtils.saveIppAttributes(outputStream, attributes)
+            } ?: false
+        } catch (e: Exception) {
+            Log.e(TAG, "Error exporting printer attributes", e)
+            false
+        }
     }
+
+    private fun sanitizeFilename(raw: String): String {
+        // Remove any path separators and trim whitespace
+        var name = raw.trim()
+            .replace("/", "_")
+            .replace("\\", "_")
+
+        if (!name.endsWith(".json", ignoreCase = true)) {
+            name += ".json"
+        }
+
+        // Fall back to a basic name if the result is empty
+        if (name.isBlank()) {
+            name = "printer_attributes_${System.currentTimeMillis()}.json"
+        }
+        return name
+    }
+
+    private fun followHttpsRedirect(location: String, allowSelfSigned: Boolean): String? {
+        return try {
+            val httpsUrl = URL(location)
+            val connection = httpsUrl.openConnection() as? HttpsURLConnection ?: return null
+
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            if (allowSelfSigned) {
+                connection.sslSocketFactory = unsafeSslSocketFactory
+                connection.hostnameVerifier = unsafeHostnameVerifier
+            }
+
+            try {
+                connection.connect()
+                val responseCode = connection.responseCode
+                if (responseCode in 200..299) {
+                    val contentType = connection.contentType ?: "unknown"
+                    val endpoint = httpsUrl.path.ifBlank { "/" }
+                    return "Connected successfully over HTTPS! Response code: $responseCode, Content-Type: $contentType, Endpoint: $endpoint"
+                } else if (responseCode in 300..399) {
+                    val chainedLocation = connection.getHeaderField("Location")
+                    if (!chainedLocation.isNullOrBlank() && chainedLocation.startsWith("https://")) {
+                        return followHttpsRedirect(chainedLocation, allowSelfSigned)
+                    }
+                } else if (responseCode == 401 || responseCode == 403) {
+                    return "Connected over HTTPS but printer requires authentication (response code: $responseCode). Endpoint: ${httpsUrl.path.ifBlank { "/" }}"
+                }
+                null
+            } finally {
+                connection.disconnect()
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to follow HTTPS redirect to $location: ${e.message}")
+            null
+        }
+    }
+
+    private val unsafeSslSocketFactory: SSLSocketFactory by lazy {
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, trustAllCerts, SecureRandom())
+        sslContext.socketFactory
+    }
+
+    private val unsafeHostnameVerifier = HostnameVerifier { _, _ -> true }
+
+    private val trustAllCerts = arrayOf<TrustManager>(
+        object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+    )
 } 

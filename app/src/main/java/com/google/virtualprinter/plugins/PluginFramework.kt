@@ -28,6 +28,7 @@ import com.google.virtualprinter.logging.LogLevel
 import com.google.virtualprinter.logging.PrinterLogger
 import com.google.virtualprinter.queue.PrintJob
 import com.google.virtualprinter.queue.PrintJobState
+import com.google.virtualprinter.utils.IppAttributesUtils
 import com.hp.jipp.encoding.AttributeGroup
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -614,7 +615,12 @@ class PluginFramework private constructor(private val context: Context) {
     private fun updateLoadedPlugins() {
         _loadedPluginIds.value = loadedPlugins.keys.toSet()
     }
-    
+    // Force refresh of plugin availability/loaded state
+    fun refreshState() {
+        updateAvailablePlugins()
+        updateLoadedPlugins()
+        logger.d(LogCategory.SYSTEM, TAG, "Plugin state refreshed")
+    }
     private fun loadPluginMetadata() {
         try {
             val configFile = File(context.filesDir, PLUGIN_CONFIG_FILE)
@@ -1564,6 +1570,89 @@ class AttributeOverridePlugin : PrinterPlugin {
                 if (!modifiedAttributes.any { it.name == "number-up-default" }) {
                     modifiedAttributes.add(com.hp.jipp.model.Types.numberUpDefault.of(pagesPerSheetDefault))
                 }
+
+                if (customAttributesJson.isNotBlank()) {
+                    try {
+                        val customJson = org.json.JSONObject(customAttributesJson.trim())
+                        val customAttrNames = customJson.keys()
+
+                        while (customAttrNames.hasNext()) {
+                            val attrName = customAttrNames.next()
+                            val attrValue = customJson.get(attrName)
+
+                            // Create attribute based on value type
+                            val newAttr = when (attrValue) {
+                                is org.json.JSONArray -> {
+                                    // Array of values (e.g., ["toner-low-warning"])
+                                    val values = mutableListOf<String>()
+                                    for (i in 0 until attrValue.length()) {
+                                        val item = attrValue.get(i)
+                                        if (item != org.json.JSONObject.NULL) {
+                                            values.add(item.toString())
+                                        }
+                                    }
+
+                                    if (values.isNotEmpty()) {
+                                        // Try to use Types methods for known attributes
+                                        when (attrName) {
+                                            "printer-state-reasons" -> {
+                                                if (values.size == 1) {
+                                                    com.hp.jipp.model.Types.printerStateReasons.of(values[0])
+                                                } else {
+                                                    com.hp.jipp.model.Types.printerStateReasons.of(values[0], *values.drop(1).toTypedArray())
+                                                }
+                                            }
+                                            else -> {
+
+                                                Log.d("AttributeOverridePlugin", "Multi-value attribute $attrName: using first value ${values[0]}")
+                                                createCustomAttribute(attrName, values[0])
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    }
+                                }
+                                is String -> {
+                                    // Single string value
+                                    createCustomAttribute(attrName, attrValue)
+                                }
+                                is Number -> {
+                                    // Single number value
+                                    createCustomAttribute(attrName, attrValue)
+                                }
+                                is Boolean -> {
+                                    // Single boolean value
+                                    createCustomAttribute(attrName, attrValue)
+                                }
+                                else -> {
+                                    // Other types - convert to string
+                                    if (attrValue != org.json.JSONObject.NULL) {
+                                        createCustomAttribute(attrName, attrValue.toString())
+                                    } else {
+                                        null
+                                    }
+                                }
+                            }
+
+                            if (newAttr != null) {
+                                // Remove any existing attribute with this name
+                                modifiedAttributes.removeAll { it.name == attrName }
+                                modifiedAttributes.add(newAttr)
+                                Log.d("AttributeOverridePlugin", "Added custom attribute: $attrName = $attrValue")
+                            }else{
+                                Log.w(
+                                    "AttributeOverridePlugin",
+                                    "Failed to create attribute: $attrName from value: $attrValue. Keeping existing value."
+                                )
+                            }
+                        }
+
+                        Log.d("AttributeOverridePlugin", "Applied ${customJson.length()} custom attributes from JSON")
+                    } catch (e: Exception) {
+                        Log.e("AttributeOverridePlugin", "Error parsing custom attributes JSON: ${e.message}", e)
+                        // Continue with other attributes even if custom JSON fails
+                    }
+                }
                 
                 // Create new printer attributes group with modified attributes
                 val modifiedPrinterGroup = com.hp.jipp.encoding.AttributeGroup.groupOf(
@@ -1592,7 +1681,43 @@ class AttributeOverridePlugin : PrinterPlugin {
             null
         }
     }
-    
+
+    /**
+     * Helper function to create a custom attribute from a single value
+     * Uses IppAttributesUtils for attribute creation
+     */
+    private fun createCustomAttribute(name: String, value: Any): com.hp.jipp.encoding.Attribute<*>? {
+        return try {
+            when (value) {
+                is Int -> {
+                    IppAttributesUtils.createAttribute(name, value, "INTEGER")
+                }
+
+                is Long -> {
+                    IppAttributesUtils.createAttribute(name, value, "INTEGER")
+                }
+
+                is Boolean -> {
+                    IppAttributesUtils.createAttribute(name, value, "BOOLEAN")
+                }
+
+                is String -> {
+                    IppAttributesUtils.createAttribute(name, value, "STRING")
+                }
+
+                else -> {
+                    Log.w(
+                        "AttributeOverridePlugin",
+                        "Unsupported value type for attribute $name: ${value::class.java.simpleName}"
+                    )
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AttributeOverridePlugin", "Error creating custom attribute $name", e)
+            null
+        }
+    }
     override fun getConfigurationSchema(): PluginConfigurationSchema {
         return PluginConfigurationSchema(
             fields = listOf(
