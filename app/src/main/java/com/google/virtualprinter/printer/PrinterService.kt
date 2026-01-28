@@ -28,6 +28,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.http.*
 import java.io.File
+import com.hp.jipp.cups.Cups
 import com.hp.jipp.encoding.IntOrIntRange
 import com.hp.jipp.encoding.IppPacket
 import com.hp.jipp.encoding.IppInputStream
@@ -36,9 +37,16 @@ import com.hp.jipp.encoding.Resolution
 import com.hp.jipp.encoding.ResolutionUnit
 import com.hp.jipp.encoding.Tag
 import com.hp.jipp.encoding.AttributeGroup
+import com.hp.jipp.model.Finishing
+import com.hp.jipp.model.JobPasswordEncryption
+import com.hp.jipp.model.JobPasswordRepertoireSupported
+import com.hp.jipp.model.JobSheet
 import com.hp.jipp.model.MediaCol
 import com.hp.jipp.model.MediaColDatabase
+import com.hp.jipp.model.MultipleDocumentHandling
 import com.hp.jipp.model.Operation
+import com.hp.jipp.model.PageDelivery
+import com.hp.jipp.model.PrintColorMode
 import com.hp.jipp.model.Sides
 import com.hp.jipp.model.Status
 import com.hp.jipp.model.Types
@@ -831,7 +839,9 @@ class PrinterService(private val context: Context) {
      */
     private fun createDefaultPrinterAttributesResponse(request: IppPacket): IppPacket {
         Log.d(TAG, "Creating default IPP attributes (priority 1 - lowest)")
-        
+        Log.d(TAG, "Job attributes: ${request.attributeGroups}")
+        Log.d(TAG, "request: ${request}")
+
         // Get the IP address of the device
         val hostAddress = getLocalIpAddress() ?: "127.0.0.1"
         
@@ -949,10 +959,91 @@ class PrinterService(private val context: Context) {
               Sides.twoSidedLongEdge,
             ),
 
+            Types.pageDeliveryDefault.of(PageDelivery.sameOrderFaceUp),
+            Types.pageDeliverySupported.of(PageDelivery.reverseOrderFaceDown,
+                                           PageDelivery.reverseOrderFaceUp,
+                                           PageDelivery.sameOrderFaceDown,
+                                           PageDelivery.sameOrderFaceUp,
+                                           PageDelivery.systemSpecified),
+
+            Types.multipleDocumentHandlingDefault.of(
+              MultipleDocumentHandling.separateDocumentsCollatedCopies),
+            Types.multipleDocumentHandlingSupported.of(
+              MultipleDocumentHandling.separateDocumentsCollatedCopies,
+              MultipleDocumentHandling.separateDocumentsUncollatedCopies),
+
+            Types.printColorModeDefault.of(PrintColorMode.color),
+            Types.printColorModeSupported.of(
+              PrintColorMode.color,
+              PrintColorMode.monochrome),
+
+            Types.jobPasswordSupported.of(
+              4
+            ),
+            Types.jobPasswordLengthSupported.of(
+              IntRange(4, 4)
+            ),
+            Types.jobPasswordEncryptionSupported.of(
+              JobPasswordEncryption.none,
+              JobPasswordEncryption.sha2_256
+            ),
+            Types.jobPasswordRepertoireSupported.of(
+              JobPasswordRepertoireSupported.ianaUsAsciiDigits
+            ),
+            Types.jobPasswordRepertoireConfigured.of(
+              JobPasswordRepertoireSupported.ianaUsAsciiDigits
+            ),
+
+            Types.finishingsSupported.of(
+                Finishing.punch.code,
+                Finishing.staple.code,
+                Finishing.stapleTopLeft.code,
+                Finishing.stapleBottomLeft.code,
+                Finishing.stapleTopRight.code,
+                Finishing.stapleBottomRight.code
+            ),
+
+            Cups.Types.markerNames.of(
+              "Black",
+              "Cyan",
+              "Magenta",
+              "Yellow"
+            ),
+            Cups.Types.markerColors.of(
+              "#000000",
+              "#00FFFF",
+              "#FF00FF",
+              "#FFFF00"
+            ),
+            Cups.Types.markerTypes.of(
+              "ink-cartridge",
+              "ink-cartridge",
+              "ink-cartridge",
+              "ink-cartridge"
+            ),
+            Cups.Types.markerLowLevels.of(
+              15,
+              15,
+              15,
+              15
+            ),
+            Cups.Types.markerHighLevels.of(
+              100,
+              100,
+              100,
+              100
+            ),
+            Cups.Types.markerLevels.of(
+              20,
+              80,
+              10,
+              100
+            ),
+
             // Job attributes
-            Types.jobSheetsDefault.of("none"),
-            Types.jobSheetsSupported.of("none", "standard"),
-            
+            Types.jobSheetsDefault.of(JobSheet.none),
+            Types.jobSheetsSupported.of(JobSheet.none, JobSheet.standard),
+
             // Operations supported
             Types.operationsSupported.of(
                 Operation.printJob.code,
@@ -965,7 +1056,6 @@ class PrinterService(private val context: Context) {
             ),
             
             // Capabilities
-            Types.colorSupported.of(true),
             Types.printerResolutionSupported.of(Resolution(300, 300, ResolutionUnit.dotsPerInch))
         )
         
