@@ -972,11 +972,6 @@ class PrinterService(private val context: Context) {
               MultipleDocumentHandling.separateDocumentsCollatedCopies,
               MultipleDocumentHandling.separateDocumentsUncollatedCopies),
 
-            Types.printColorModeDefault.of(PrintColorMode.color),
-            Types.printColorModeSupported.of(
-              PrintColorMode.color,
-              PrintColorMode.monochrome),
-
             Types.jobPasswordSupported.of(
               4
             ),
@@ -1056,6 +1051,12 @@ class PrinterService(private val context: Context) {
             ),
             
             // Capabilities
+            Types.colorSupported.of(true),
+            Types.printColorModeDefault.of(PrintColorMode.color),
+            Types.printColorModeSupported.of(
+              PrintColorMode.color,
+              PrintColorMode.monochrome),
+
             Types.printerResolutionSupported.of(Resolution(300, 300, ResolutionUnit.dotsPerInch))
         )
         
