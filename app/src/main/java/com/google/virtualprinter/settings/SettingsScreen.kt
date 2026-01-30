@@ -959,8 +959,6 @@ fun SettingsScreen(
     // Save Printer Attributes Dialog
     if (showPrinterSaveDialog) {
         var saveFilename by remember { mutableStateOf("printer_${selectedPrinter?.name?.replace(" ", "_")?.lowercase() ?: "unknown"}_${System.currentTimeMillis()}.json") }
-//        var useDefaultAttributes by remember { mutableStateOf(false) }
-        
         AlertDialog(
             onDismissRequest = { showPrinterSaveDialog = false },
             title = { Text("Save Printer Attributes") },

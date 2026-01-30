@@ -453,19 +453,16 @@ object PrinterDiscoveryUtils {
     }
     suspend fun isPrinterReachable(printer: NetworkPrinter): Boolean =
         withContext(Dispatchers.IO) {
-
-            withContext(Dispatchers.IO) {
-                try {
-                    Socket().use {
-                        it.connect(
-                            InetSocketAddress(printer.address, printer.port),
-                            3000
-                        )
-                    }
-                    true
-                } catch (e: Exception) {
-                    false
+            try {
+                Socket().use {
+                    it.connect(
+                        InetSocketAddress(printer.address, printer.port),
+                        3000
+                    )
                 }
+                true
+            } catch (e: Exception) {
+                false
             }
         }
     

@@ -64,8 +64,6 @@ import com.google.virtualprinter.queue.PrintJobQueue
 import com.google.virtualprinter.queue.PrintJobState
 import com.hp.jipp.encoding.Attribute
 import com.hp.jipp.model.JobState
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import java.io.InputStream
 import kotlin.time.Duration.Companion.seconds
 
 class PrinterService(private val context: Context) {
@@ -641,12 +639,6 @@ class PrinterService(private val context: Context) {
                         // Create a success response with job attributes
                         val (userName, jobName) = extractJobInfoFromRequest(request)
                         val printerUpTimeSeconds = (SystemClock.elapsedRealtime() / 1000).toInt()
-//                        val totalPages = resolveTotalPages(
-//                                request = request,
-//                                documentFormat = documentFormat,
-//                                documentStream = documentInputStream
-//                            )
-
                         val response = IppPacket(
                             Status.successfulOk,
                             request.requestId,
