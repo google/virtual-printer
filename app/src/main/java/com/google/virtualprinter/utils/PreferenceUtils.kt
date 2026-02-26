@@ -64,7 +64,7 @@ object PreferenceUtils {
      * Reads the printer name from a configuration file if it exists.
      */
     private fun getNameFromConfigFile(context: Context): String? {
-        val configFile = File("/data/local/tmp/${CONFIG_FILE_NAME}")
+        val configFile = File(context.filesDir, CONFIG_FILE_NAME)
         if (configFile.exists()) {
             Log.d(TAG, "Reading config from ${configFile.absolutePath}")
             try {
