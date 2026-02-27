@@ -60,6 +60,8 @@ import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.net.URI
 import com.google.virtualprinter.utils.PreferenceUtils
 import com.google.virtualprinter.utils.IppAttributesUtils
@@ -87,6 +89,7 @@ class PrinterService(private val context: Context) {
     private var customIppAttributes: List<AttributeGroup>? = null
     private val logger by lazy { PrinterLogger.getInstance(context) }
     private val pluginFramework by lazy { PluginFramework.getInstance(context) }
+    private val jobAttributeCounters = ConcurrentHashMap<Long, AtomicInteger>()
     
     // Add error simulation properties
     private var simulateErrorMode = false
@@ -600,6 +603,9 @@ class PrinterService(private val context: Context) {
                         val jobId = System.currentTimeMillis()
                         Log.d(TAG, "Processing Print-Job with ID: $jobId, document size: ${documentData.size} bytes, format: $documentFormat")
                         
+                        // Save attributes for analysis
+                        saveIppAttributes(jobId, request.attributeGroups, "Print-Job")
+
                         // Register job in queue for plugin hooks
                         val job = com.google.virtualprinter.queue.PrintJob(
                             id = jobId,
@@ -689,6 +695,9 @@ class PrinterService(private val context: Context) {
                     if (jobId == null) {
                         IppPacket(Status.clientErrorBadRequest, request.requestId)
                     } else {
+                        // Save attributes for analysis
+                        saveIppAttributes(jobId.toLong(), request.attributeGroups, "Get-Job-Attributes")
+
                         // Return job attributes with COMPLETED state
                         val (userName, jobName) = extractJobInfoFromRequest(request)
                         val printerUpTimeSeconds = (SystemClock.elapsedRealtime() / 1000).toInt()
@@ -789,6 +798,10 @@ class PrinterService(private val context: Context) {
                         
                         // Use the job ID from the request or generate a new one
                         val actualJobId = if (jobId != null && jobId > 0) jobId.toLong() else System.currentTimeMillis()
+
+                        // Save attributes for analysis
+                        saveIppAttributes(actualJobId, request.attributeGroups, "Send-Document")
+
                         val job = com.google.virtualprinter.queue.PrintJob(
                             id = actualJobId,
                             name = request.attributeGroups.find { it.tag == Tag.operationAttributes }?.getValues(Types.jobName)?.firstOrNull()?.toString() ?: "Send Document",
@@ -858,6 +871,14 @@ class PrinterService(private val context: Context) {
                 }
             }
             Operation.validateJob.code -> { // Validate-Job operation
+                // Get job ID from attributes if present
+                val jobId = request.attributeGroups
+                    .find { it.tag == Tag.operationAttributes }
+                    ?.getValues(Types.jobId)
+                    ?.firstOrNull() ?: 0
+
+                // Save attributes for analysis
+                saveIppAttributes(jobId.toLong(), request.attributeGroups, "Validate-Job")
                 IppPacket(Status.successfulOk, request.requestId)
             }
             Operation.createJob.code -> { // Create-Job operation
@@ -866,6 +887,9 @@ class PrinterService(private val context: Context) {
                     Log.d(TAG, "Create-Job operation: Assigning job ID: $jobId")
                     Log.d(TAG, "Job attributes: ${request.attributeGroups}")
                     
+                    // Save attributes for analysis
+                    saveIppAttributes(jobId, request.attributeGroups, "Create-Job")
+
                     // Create a response with job attributes
                     val response = IppPacket(
                         Status.successfulOk,
@@ -892,7 +916,10 @@ class PrinterService(private val context: Context) {
             }
             Operation.getPrinterAttributes.code -> { // Get-Printer-Attributes operation
                 // Priority order: 1) Default 2) Custom Attributes 3) Plugins (highest priority)
-                
+
+                // Save attributes for analysis (Printer attributes don't have a job ID)
+                saveIppAttributes(0L, request.attributeGroups, "Get-Printer-Attributes")
+
                 // Step 1: Get default attributes
                 val defaultResponse = createDefaultPrinterAttributesResponse(request)
                 
@@ -942,6 +969,9 @@ class PrinterService(private val context: Context) {
                     if (jobId == null) {
                         IppPacket(Status.clientErrorBadRequest, request.requestId)
                     } else {
+                        // Save attributes for analysis
+                        saveIppAttributes(jobId.toLong(), request.attributeGroups, "Cancel-Job")
+
                         val queue = PrintJobQueue.getInstance(context)
                         if (queue.cancelJob(jobId.toLong())) {
                             IppPacket(Status.successfulOk, request.requestId)
@@ -1201,6 +1231,39 @@ class PrinterService(private val context: Context) {
         )
     }
     
+    /**
+     * Saves IPP attributes to a file for analysis.
+     */
+    private fun saveIppAttributes(jobId: Long, attributeGroups: List<AttributeGroup>, operationName: String) {
+        try {
+            val attrDir = File(context.filesDir, "ipp_attributes").apply {
+                if (!exists()) mkdirs()
+            }
+
+            // Get a counter for each specific job.
+            val counter = jobAttributeCounters.getOrPut(jobId) { AtomicInteger(0) }.incrementAndGet()
+
+            val sanitizedPrinterName = getPrinterName().replace(Regex("[^a-zA-Z0-9]"), "_")
+            val fileName = "attr_${sanitizedPrinterName}_job_${jobId}_${operationName}_${"%04d".format(counter)}.txt"
+            val file = File(attrDir, fileName)
+
+            file.bufferedWriter().use { writer ->
+                writer.write("Operation: $operationName\n")
+                writer.write("Printer: ${getPrinterName()}\n")
+                writer.write("Job ID: $jobId\n")
+                writer.write("Timestamp: ${java.util.Date()}\n")
+                writer.write("------------------------------------------\n\n")
+
+                attributeGroups.forEach { group ->
+                    writer.write("$group\n\n")
+                }
+            }
+            Log.d(TAG, "Saved IPP attributes to: ${file.absolutePath}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving IPP attributes", e)
+        }
+    }
+
     private fun saveDocument(docBytes: ByteArray, jobId: Long = System.currentTimeMillis(), documentFormat: String = "application/octet-stream") {
         try {
             // Log incoming document format
