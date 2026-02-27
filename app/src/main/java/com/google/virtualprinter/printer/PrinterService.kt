@@ -60,6 +60,8 @@ import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.net.URI
 import com.google.virtualprinter.utils.PreferenceUtils
 import com.google.virtualprinter.utils.IppAttributesUtils
@@ -87,6 +89,7 @@ class PrinterService(private val context: Context) {
     private var customIppAttributes: List<AttributeGroup>? = null
     private val logger by lazy { PrinterLogger.getInstance(context) }
     private val pluginFramework by lazy { PluginFramework.getInstance(context) }
+    private val jobAttributeCounters = ConcurrentHashMap<Long, AtomicInteger>()
     
     // Add error simulation properties
     private var simulateErrorMode = false
@@ -692,6 +695,9 @@ class PrinterService(private val context: Context) {
                     if (jobId == null) {
                         IppPacket(Status.clientErrorBadRequest, request.requestId)
                     } else {
+                        // Save attributes for analysis
+                        saveIppAttributes(jobId.toLong(), request.attributeGroups, "Get-Job-Attributes")
+
                         // Return job attributes with COMPLETED state
                         val (userName, jobName) = extractJobInfoFromRequest(request)
                         val printerUpTimeSeconds = (SystemClock.elapsedRealtime() / 1000).toInt()
@@ -865,6 +871,14 @@ class PrinterService(private val context: Context) {
                 }
             }
             Operation.validateJob.code -> { // Validate-Job operation
+                // Get job ID from attributes if present
+                val jobId = request.attributeGroups
+                    .find { it.tag == Tag.operationAttributes }
+                    ?.getValues(Types.jobId)
+                    ?.firstOrNull() ?: 0
+
+                // Save attributes for analysis
+                saveIppAttributes(jobId.toLong(), request.attributeGroups, "Validate-Job")
                 IppPacket(Status.successfulOk, request.requestId)
             }
             Operation.createJob.code -> { // Create-Job operation
@@ -902,7 +916,10 @@ class PrinterService(private val context: Context) {
             }
             Operation.getPrinterAttributes.code -> { // Get-Printer-Attributes operation
                 // Priority order: 1) Default 2) Custom Attributes 3) Plugins (highest priority)
-                
+
+                // Save attributes for analysis (Printer attributes don't have a job ID)
+                saveIppAttributes(0L, request.attributeGroups, "Get-Printer-Attributes")
+
                 // Step 1: Get default attributes
                 val defaultResponse = createDefaultPrinterAttributesResponse(request)
                 
@@ -952,6 +969,9 @@ class PrinterService(private val context: Context) {
                     if (jobId == null) {
                         IppPacket(Status.clientErrorBadRequest, request.requestId)
                     } else {
+                        // Save attributes for analysis
+                        saveIppAttributes(jobId.toLong(), request.attributeGroups, "Cancel-Job")
+
                         val queue = PrintJobQueue.getInstance(context)
                         if (queue.cancelJob(jobId.toLong())) {
                             IppPacket(Status.successfulOk, request.requestId)
@@ -1220,8 +1240,11 @@ class PrinterService(private val context: Context) {
                 if (!exists()) mkdirs()
             }
 
+            // Get a counter for each specific job.
+            val counter = jobAttributeCounters.getOrPut(jobId) { AtomicInteger(0) }.incrementAndGet()
+
             val sanitizedPrinterName = getPrinterName().replace(Regex("[^a-zA-Z0-9]"), "_")
-            val fileName = "attr_${sanitizedPrinterName}_job_${jobId}_${operationName}.txt"
+            val fileName = "attr_${sanitizedPrinterName}_job_${jobId}_${operationName}_${"%04d".format(counter)}.txt"
             val file = File(attrDir, fileName)
 
             file.bufferedWriter().use { writer ->
