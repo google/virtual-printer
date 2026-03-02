@@ -89,7 +89,11 @@ class PrinterService(private val context: Context) {
     private var customIppAttributes: List<AttributeGroup>? = null
     private val logger by lazy { PrinterLogger.getInstance(context) }
     private val pluginFramework by lazy { PluginFramework.getInstance(context) }
-    private val jobAttributeCounters = ConcurrentHashMap<Long, AtomicInteger>()
+    private val jobAttributeCounters = ConcurrentHashMap<Int, AtomicInteger>()
+    private val jobIdCounter = AtomicInteger(1)
+
+    /** Generates a unique, positive 31-bit Job ID */
+    private fun generateJobId(): Int = jobIdCounter.getAndIncrement() and 0x7FFFFFFF
     
     // Add error simulation properties
     private var simulateErrorMode = false
@@ -389,7 +393,7 @@ class PrinterService(private val context: Context) {
                 "aborted" -> {
                     Log.d(TAG, "Simulating aborted job response")
                     if (request.code == Operation.printJob.code || request.code == Operation.createJob.code) {
-                        val jobId = System.currentTimeMillis().toInt()
+                        val jobId = generateJobId()
                         IppPacket(
                             Status.clientErrorNotPossible,
                             request.requestId,
@@ -522,7 +526,7 @@ class PrinterService(private val context: Context) {
                     try {
                         // Create a temporary job for plugin delay processing
                         val tempJob = com.google.virtualprinter.queue.PrintJob(
-                            id = System.currentTimeMillis(),
+                            id = generateJobId().toLong(),
                             name = "Temp Job for Delay",
                             filePath = "temp",
                             documentFormat = "application/pdf",
@@ -600,7 +604,7 @@ class PrinterService(private val context: Context) {
                         logger.d(LogCategory.DOCUMENT_PROCESSING, TAG, "Received document data", metadata = mapOf("bytes" to documentData.size))
                         
                         // Generate a unique job ID
-                        val jobId = System.currentTimeMillis()
+                        val jobId = generateJobId()
                         Log.d(TAG, "Processing Print-Job with ID: $jobId, document size: ${documentData.size} bytes, format: $documentFormat")
                         
                         // Save attributes for analysis
@@ -608,7 +612,7 @@ class PrinterService(private val context: Context) {
 
                         // Register job in queue for plugin hooks
                         val job = com.google.virtualprinter.queue.PrintJob(
-                            id = jobId,
+                            id = jobId.toLong(),
                             name = request.attributeGroups.find { it.tag == Tag.operationAttributes }?.getValues(Types.jobName)?.firstOrNull()?.toString() ?: "Print Job",
                             filePath = File(printJobsDirectory, "print_job_${jobId}.tmp").absolutePath,
                             documentFormat = documentFormat,
@@ -649,7 +653,7 @@ class PrinterService(private val context: Context) {
                         }
                         
                         // Save the document (possibly modified by plugins) with format info
-                        saveDocument(finalDocumentData, jobId, documentFormat)
+                        saveDocument(finalDocumentData, jobId.toLong(), documentFormat)
                         
                         // Create a success response with job attributes
                         val (userName, jobName) = extractJobInfoFromRequest(request)
@@ -672,7 +676,7 @@ class PrinterService(private val context: Context) {
                                 printerUpTimeSeconds = printerUpTimeSeconds
                             )
                         )
-                        logger.i(LogCategory.PRINT_JOB, TAG, "Accepted Print-Job", jobId = jobId,
+                        logger.i(LogCategory.PRINT_JOB, TAG, "Accepted Print-Job", jobId = jobId.toLong(),
                             metadata = mapOf("format" to documentFormat))
                         
                         response
@@ -696,7 +700,7 @@ class PrinterService(private val context: Context) {
                         IppPacket(Status.clientErrorBadRequest, request.requestId)
                     } else {
                         // Save attributes for analysis
-                        saveIppAttributes(jobId.toLong(), request.attributeGroups, "Get-Job-Attributes")
+                        saveIppAttributes(jobId, request.attributeGroups, "Get-Job-Attributes")
 
                         // Return job attributes with COMPLETED state
                         val (userName, jobName) = extractJobInfoFromRequest(request)
@@ -734,7 +738,7 @@ class PrinterService(private val context: Context) {
                     // Execute delay simulator FIRST - before any processing or response
                     try {
                         val tempJob = com.google.virtualprinter.queue.PrintJob(
-                            id = System.currentTimeMillis(),
+                            id = generateJobId().toLong(),
                             name = "Temp Job for Send-Document Delay",
                             filePath = "temp",
                             documentFormat = "application/pdf",
@@ -797,13 +801,13 @@ class PrinterService(private val context: Context) {
                         Log.d(TAG, "Received document data from Send-Document: ${documentData.size} bytes")
                         
                         // Use the job ID from the request or generate a new one
-                        val actualJobId = if (jobId != null && jobId > 0) jobId.toLong() else System.currentTimeMillis()
+                        val actualJobId = jobId ?: generateJobId()
 
                         // Save attributes for analysis
                         saveIppAttributes(actualJobId, request.attributeGroups, "Send-Document")
 
                         val job = com.google.virtualprinter.queue.PrintJob(
-                            id = actualJobId,
+                            id = actualJobId.toLong(),
                             name = request.attributeGroups.find { it.tag == Tag.operationAttributes }?.getValues(Types.jobName)?.firstOrNull()?.toString() ?: "Send Document",
                             filePath = File(printJobsDirectory, "print_job_${actualJobId}.tmp").absolutePath,
                             documentFormat = documentFormat,
@@ -832,7 +836,7 @@ class PrinterService(private val context: Context) {
                         } catch (e: Exception) { Log.w(TAG, "Plugin process hook error: ${e.message}") }
                         
                         // Save the document (possibly modified by plugins) with format info
-                        saveDocument(finalDocumentData, actualJobId, documentFormat)
+                        saveDocument(finalDocumentData, actualJobId.toLong(), documentFormat)
                         
                         // Create a success response with job attributes
                         val (userName, jobName) = extractJobInfoFromRequest(request)
@@ -878,12 +882,12 @@ class PrinterService(private val context: Context) {
                     ?.firstOrNull() ?: 0
 
                 // Save attributes for analysis
-                saveIppAttributes(jobId.toLong(), request.attributeGroups, "Validate-Job")
+                saveIppAttributes(jobId, request.attributeGroups, "Validate-Job")
                 IppPacket(Status.successfulOk, request.requestId)
             }
             Operation.createJob.code -> { // Create-Job operation
                 try {
-                    val jobId = System.currentTimeMillis()
+                    val jobId = generateJobId()
                     Log.d(TAG, "Create-Job operation: Assigning job ID: $jobId")
                     Log.d(TAG, "Job attributes: ${request.attributeGroups}")
                     
@@ -918,7 +922,7 @@ class PrinterService(private val context: Context) {
                 // Priority order: 1) Default 2) Custom Attributes 3) Plugins (highest priority)
 
                 // Save attributes for analysis (Printer attributes don't have a job ID)
-                saveIppAttributes(0L, request.attributeGroups, "Get-Printer-Attributes")
+                saveIppAttributes(0, request.attributeGroups, "Get-Printer-Attributes")
 
                 // Step 1: Get default attributes
                 val defaultResponse = createDefaultPrinterAttributesResponse(request)
@@ -970,7 +974,7 @@ class PrinterService(private val context: Context) {
                         IppPacket(Status.clientErrorBadRequest, request.requestId)
                     } else {
                         // Save attributes for analysis
-                        saveIppAttributes(jobId.toLong(), request.attributeGroups, "Cancel-Job")
+                        saveIppAttributes(jobId, request.attributeGroups, "Cancel-Job")
 
                         val queue = PrintJobQueue.getInstance(context)
                         if (queue.cancelJob(jobId.toLong())) {
@@ -1234,7 +1238,7 @@ class PrinterService(private val context: Context) {
     /**
      * Saves IPP attributes to a file for analysis.
      */
-    private fun saveIppAttributes(jobId: Long, attributeGroups: List<AttributeGroup>, operationName: String) {
+    private fun saveIppAttributes(jobId: Int, attributeGroups: List<AttributeGroup>, operationName: String) {
         try {
             val attrDir = File(context.filesDir, "ipp_attributes").apply {
                 if (!exists()) mkdirs()
@@ -1264,7 +1268,7 @@ class PrinterService(private val context: Context) {
         }
     }
 
-    private fun saveDocument(docBytes: ByteArray, jobId: Long = System.currentTimeMillis(), documentFormat: String = "application/octet-stream") {
+    private fun saveDocument(docBytes: ByteArray, jobId: Long = generateJobId().toLong(), documentFormat: String = "application/octet-stream") {
         try {
             // Log incoming document format
             Log.d(TAG, "Saving document with format: $documentFormat and size: ${docBytes.size} bytes")
