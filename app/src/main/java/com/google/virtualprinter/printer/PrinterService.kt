@@ -91,6 +91,7 @@ class PrinterService(private val context: Context) {
     private val pluginFramework by lazy { PluginFramework.getInstance(context) }
     private val jobAttributeCounters = ConcurrentHashMap<Int, AtomicInteger>()
     private val jobIdCounter = AtomicInteger(1)
+    private val printerUuid = PreferenceUtils.getPrinterUuid(context)
 
     /** Generates a unique, positive 31-bit Job ID */
     private fun generateJobId(): Int = jobIdCounter.getAndIncrement() and 0x7FFFFFFF
@@ -1013,6 +1014,7 @@ class PrinterService(private val context: Context) {
             Tag.printerAttributes,
             // Basic printer information
             Types.printerName.of(getPrinterName()),
+            Types.printerUuid.of(URI.create("urn:uuid:$printerUuid")),
             Types.printerState.of(PrinterState.idle),
             Types.printerStateReasons.of("none"),
             Types.printerIsAcceptingJobs.of(true),
@@ -1489,6 +1491,7 @@ class PrinterService(private val context: Context) {
                 val hostAddress = getLocalIpAddress() ?: "127.0.0.1"
                 val attributes = mapOf(
                     "URF" to "none",
+                    "UUID" to printerUuid,
                     "adminurl" to "http://$hostAddress:$PORT/",
                     "rp" to "ipp/print", // Resource path for IPP
                     "pdl" to pdlValue,

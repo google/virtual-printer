@@ -21,6 +21,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
 
 /**
  * Utility class for managing app preferences
@@ -29,10 +30,12 @@ object PreferenceUtils {
     private const val TAG = "PreferenceUtils"
     private const val PREFS_NAME = "printer_preferences"
     private const val KEY_PRINTER_NAME = "printer_name"
+    private const val KEY_PRINTER_UUID = "printer_uuid"
     private const val DEFAULT_PRINTER_NAME = "Android Virtual Printer"
     
     private const val CONFIG_FILE_NAME = "printer_config.json"
     private const val KEY_CONFIG_PRINTER_NAME = "printer_name"
+    private const val KEY_CONFIG_PRINTER_UUID = "printer_uuid"
     private const val KEY_CONFIG_SUPPORTED_FORMATS = "supported_formats"
     private const val KEY_CONFIG_COMPRESSION_SUPPORTED = "compression_supported"
 
@@ -42,6 +45,7 @@ object PreferenceUtils {
         "application/PCLm",
         "image/jpeg",
     )
+    private val DEFAULT_COMPRESSION_SUPPORTED = listOf("none")
 
     /**
      * Gets the user-defined printer name or the default name if not set
@@ -60,7 +64,7 @@ object PreferenceUtils {
         }
 
         // 2. Check for configuration file
-        val configName = getNameFromConfigFile(context)
+        val configName = getStringFromConfigFile(context, KEY_CONFIG_PRINTER_NAME)
         if (configName != null) {
             return configName
         }
@@ -70,20 +74,49 @@ object PreferenceUtils {
     }
 
     /**
-     * Reads the printer name from a configuration file if it exists.
+     * Gets the printer UUID.
+     * Checks in this order:
+     * 1. Configuration file (installed on device)
+     * 2. SharedPreferences (persists across app restarts)
+     * 3. Generates a new UUID and saves it to SharedPreferences
      */
-    private fun getNameFromConfigFile(context: Context): String? {
+    fun getPrinterUuid(context: Context): String {
+        // 1. Check for configuration file first
+        val configUuid = getStringFromConfigFile(context, KEY_CONFIG_PRINTER_UUID)
+        if (configUuid != null) {
+            return configUuid
+        }
+
+        val prefs = getPreferences(context)
+
+        // 2. Check SharedPreferences
+        val savedUuid = prefs.getString(KEY_PRINTER_UUID, null)
+        if (!savedUuid.isNullOrEmpty()) {
+            return savedUuid
+        }
+
+        // 3. Generate a new UUID and save it
+        val newUuid = UUID.randomUUID().toString()
+        Log.d(TAG, "Generated new printer UUID: $newUuid")
+        prefs.edit().putString(KEY_PRINTER_UUID, newUuid).apply()
+        return newUuid
+    }
+
+    /**
+     * Get the given 'key' from the config file, returning null if the key or file doesn't exist.
+     */
+    private fun getStringFromConfigFile(context: Context, key: String): String? {
         val configFile = File(context.filesDir, CONFIG_FILE_NAME)
         if (configFile.exists()) {
             Log.d(TAG, "Reading config from ${configFile.absolutePath}")
             try {
                 val content = configFile.readText()
                 val json = JSONObject(content)
-                if (json.has(KEY_CONFIG_PRINTER_NAME)) {
-                    val name = json.getString(KEY_CONFIG_PRINTER_NAME)
-                    if (name.isNotEmpty()) {
-                      Log.d(TAG, "Printer name: $name")
-                      return name
+                if (json.has(key)) {
+                    val value = json.getString(key)
+                    if (value.isNotEmpty()) {
+                      Log.d(TAG, "$key: $value")
+                      return value
                     }
                 }
             } catch (e: Exception) {
@@ -94,31 +127,42 @@ object PreferenceUtils {
     }
 
     /**
-     * Gets the list of supported formats for the printer.
-     * Checks the configuration file first, then falls back to defaults.
+     * Get the given 'key' from the config file, returning 'default' if the key or file doesn't
+     *  exist or if the list is empty.
      */
-    fun getSupportedFormats(context: Context): List<String> {
+    private fun getStringListFromConfigFile(context: Context,
+                                            key: String,
+                                            default: List<String>): List<String> {
         val configFile = File(context.filesDir, CONFIG_FILE_NAME)
         if (configFile.exists()) {
             try {
                 val content = configFile.readText()
                 val json = JSONObject(content)
-                if (json.has(KEY_CONFIG_SUPPORTED_FORMATS)) {
-                    val formatsArray = json.getJSONArray(KEY_CONFIG_SUPPORTED_FORMATS)
-                    val formats = mutableListOf<String>()
-                    for (i in 0 until formatsArray.length()) {
-                        formats.add(formatsArray.getString(i))
+                if (json.has(key)) {
+                    val valuesArray = json.getJSONArray(KEY_CONFIG_SUPPORTED_FORMATS)
+                    val values = mutableListOf<String>()
+                    for (i in 0 until valuesArray.length()) {
+                        values.add(valuesArray.getString(i))
                     }
-                    if (formats.isNotEmpty()) {
-                      Log.d(TAG, "Found supported formats in config: $formats")
-                      return formats
+                    if (values.isNotEmpty()) {
+                      Log.d(TAG, "$key: $values")
+                      return values
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error reading config file ${configFile.absolutePath}", e)
             }
         }
-        return DEFAULT_SUPPORTED_FORMATS
+        return default
+    }
+
+    /**
+     * Gets the list of supported formats for the printer.
+     * Checks the configuration file first, then falls back to defaults.
+     */
+    fun getSupportedFormats(context: Context): List<String> {
+        return getStringListFromConfigFile(
+            context, KEY_CONFIG_SUPPORTED_FORMATS, DEFAULT_SUPPORTED_FORMATS)
     }
 
     /**
@@ -134,27 +178,8 @@ object PreferenceUtils {
      * Checks the configuration file first, then falls back to defaults.
      */
     fun getCompressionSupported(context: Context): List<String> {
-        val configFile = File(context.filesDir, CONFIG_FILE_NAME)
-        if (configFile.exists()) {
-            try {
-                val content = configFile.readText()
-                val json = JSONObject(content)
-                if (json.has(KEY_CONFIG_COMPRESSION_SUPPORTED)) {
-                    val compressionArray = json.getJSONArray(KEY_CONFIG_COMPRESSION_SUPPORTED)
-                    val compressions = mutableListOf<String>()
-                    for (i in 0 until compressionArray.length()) {
-                        compressions.add(compressionArray.getString(i))
-                    }
-                    if (compressions.isNotEmpty()) {
-                        Log.d(TAG, "Found supported compressions in config: $compressions")
-                        return compressions
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error reading config file ${configFile.absolutePath}", e)
-            }
-        }
-        return listOf("none")
+        return getStringListFromConfigFile(
+            context, KEY_CONFIG_COMPRESSION_SUPPORTED, DEFAULT_COMPRESSION_SUPPORTED)
     }
     
     /**
