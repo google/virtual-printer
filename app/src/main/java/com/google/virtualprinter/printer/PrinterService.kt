@@ -1233,10 +1233,11 @@ class PrinterService(private val context: Context) {
             val counter = jobAttributeCounters.getOrPut(jobId) { AtomicInteger(0) }.incrementAndGet()
 
             val sanitizedPrinterName = getPrinterName().replace(Regex("[^a-zA-Z0-9]"), "_")
-            val fileName = "attr_${sanitizedPrinterName}_job_${jobId}_${operationName}_${"%04d".format(counter)}.txt"
-            val file = File(attrDir, fileName)
+            val baseFileName = "attr_${sanitizedPrinterName}_job_${jobId}_${operationName}_${"%04d".format(counter)}"
 
-            file.bufferedWriter().use { writer ->
+            // Save human-readable text file.
+            val txtFile = File(attrDir, "$baseFileName.txt")
+            txtFile.bufferedWriter().use { writer ->
                 writer.write("Operation: $operationName\n")
                 writer.write("Printer: ${getPrinterName()}\n")
                 writer.write("Job ID: $jobId\n")
@@ -1247,7 +1248,17 @@ class PrinterService(private val context: Context) {
                     writer.write("$group\n\n")
                 }
             }
-            Log.d(TAG, "Saved IPP attributes to: ${file.absolutePath}")
+
+            // Save binary IPP file (to ingest more easily).
+            val ippFile = File(attrDir, "$baseFileName.ipp")
+            FileOutputStream(ippFile).use { fos ->
+                val ippOutput = IppOutputStream(fos)
+                // Wrap the groups in a packet so it can be read back by IppInputStream.readPacket()
+                val packet = IppPacket(Status.successfulOk.code, IppPacket.DEFAULT_VERSION_NUMBER, counter, attributeGroups)
+                ippOutput.write(packet)
+            }
+
+            Log.d(TAG, "Saved IPP attributes to: ${txtFile.absolutePath} and ${ippFile.absolutePath}")
         } catch (e: Exception) {
             Log.e(TAG, "Error saving IPP attributes", e)
         }
