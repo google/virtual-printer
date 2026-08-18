@@ -139,7 +139,7 @@ object PreferenceUtils {
                 val content = configFile.readText()
                 val json = JSONObject(content)
                 if (json.has(key)) {
-                    val valuesArray = json.getJSONArray(KEY_CONFIG_SUPPORTED_FORMATS)
+                    val valuesArray = json.getJSONArray(key)
                     val values = mutableListOf<String>()
                     for (i in 0 until valuesArray.length()) {
                         values.add(valuesArray.getString(i))

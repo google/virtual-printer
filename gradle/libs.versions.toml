@@ -42,6 +42,7 @@ benchmark = "1.2.3"
 tika = "2.9.1"
 pdfbox = "2.0.27.0"
 gson = "2.10.1"
+json = "20240303"
 okio = "3.8.0"
 desugar = "2.0.4"
 
@@ -92,6 +93,7 @@ okio = { group = "com.squareup.okio", name = "okio", version.ref = "okio" }
 
 # JSON and Serialization
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 
 # Logging and Debugging
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
