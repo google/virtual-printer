@@ -1,0 +1,126 @@
+{
+  "printer_name": "Sample Config Printer",
+  "printer_uuid": "12345678-1234-1234-1234-123456789abc",
+
+  "printer-attributes": {
+    "color-supported": {
+      "type": "boolean",
+      "value": true
+    },
+    "copies-supported": {
+      "type": "rangeofinteger",
+      "value": "(1:100)"
+    },
+    "printer-resolution-default": {
+      "type": "resolution",
+      "value": "1200x1200dpi"
+    },
+    "printer-make-and-model": {
+      "type": "textWithoutLanguage",
+      "value": "Dynamic Virtual Printer Pro"
+    },
+    "marker-colors": {
+      "type": "nameWithoutLanguage",
+      "value": [
+        "#000000",
+        "#00FFFF",
+        "#FF00FF",
+        "#FFFF00"
+      ]
+    },
+    "marker-levels": {
+      "type": "integer",
+      "value": [
+        95,
+        42,
+        68,
+        12
+      ]
+    },
+    "marker-names": {
+      "type": "nameWithoutLanguage",
+      "value": [
+        "Black Ink",
+        "Cyan Ink",
+        "Magenta Ink",
+        "Yellow Ink"
+      ]
+    },
+    "marker-types": {
+      "type": "keyword",
+      "value": [
+        "ink-cartridge",
+        "ink-cartridge",
+        "ink-cartridge",
+        "ink-cartridge"
+      ]
+    },
+    "media-col-database": {
+      "type": "collection",
+      "value": [
+        {
+          "media-size": {
+            "type": "collection",
+            "value": {
+              "x-dimension": {
+                "type": "integer",
+                "value": 21590
+              },
+              "y-dimension": {
+                "type": "integer",
+                "value": 27940
+              }
+            }
+          },
+          "media-bottom-margin": {
+            "type": "integer",
+            "value": 0
+          },
+          "media-left-margin": {
+            "type": "integer",
+            "value": 0
+          },
+          "media-right-margin": {
+            "type": "integer",
+            "value": 0
+          },
+          "media-top-margin": {
+            "type": "integer",
+            "value": 0
+          }
+        },
+        {
+          "media-size": {
+            "type": "collection",
+            "value": {
+              "x-dimension": {
+                "type": "integer",
+                "value": 21000
+              },
+              "y-dimension": {
+                "type": "integer",
+                "value": 29700
+              }
+            }
+          },
+          "media-bottom-margin": {
+            "type": "integer",
+            "value": 400
+          },
+          "media-left-margin": {
+            "type": "integer",
+            "value": 400
+          },
+          "media-right-margin": {
+            "type": "integer",
+            "value": 400
+          },
+          "media-top-margin": {
+            "type": "integer",
+            "value": 400
+          }
+        }
+      ]
+    }
+  }
+}
