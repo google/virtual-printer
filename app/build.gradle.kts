@@ -71,6 +71,9 @@ android {
             pickFirsts += "/META-INF/io.netty.versions.properties"
         }
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -106,6 +109,9 @@ dependencies {
     
     implementation(kotlin("stdlib", "1.9.22"))
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.truth)
+    testImplementation(libs.json)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
