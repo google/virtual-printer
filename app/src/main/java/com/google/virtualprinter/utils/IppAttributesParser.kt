@@ -412,18 +412,18 @@ object IppAttributesParser {
         val rawSizeObj = extractValue(obj, "media-size") as? JSONObject ?: return null
 
         // Unbox inner dimensions
-        val xDim = extractValue(rawSizeObj, "x-dimension") as? Int ?: -1
-        val yDim = extractValue(rawSizeObj, "y-dimension") as? Int ?: -1
+        val xDim = (extractValue(rawSizeObj, "x-dimension") as? Number)?.toInt() ?: -1
+        val yDim = (extractValue(rawSizeObj, "y-dimension") as? Number)?.toInt() ?: -1
 
         if (xDim <= 0 || yDim <= 0) return null
 
         val mediaSize = MediaColDatabase.MediaSize(IntOrIntRange(xDim), IntOrIntRange(yDim))
 
         // Unbox boundaries and use Elvis operator for concise null safety
-        val bottomMargin = extractValue(obj, "media-bottom-margin") as? Int
-        val topMargin = extractValue(obj, "media-top-margin") as? Int
-        val leftMargin = extractValue(obj, "media-left-margin") as? Int
-        val rightMargin = extractValue(obj, "media-right-margin") as? Int
+        val bottomMargin = (extractValue(obj, "media-bottom-margin") as? Number)?.toInt()
+        val topMargin = (extractValue(obj, "media-top-margin") as? Number)?.toInt()
+        val leftMargin = (extractValue(obj, "media-left-margin") as? Number)?.toInt()
+        val rightMargin = (extractValue(obj, "media-right-margin") as? Number)?.toInt()
         val source = (extractValue(obj, "media-source") as? String)?.let { KeywordOrName(it) }
         val type = (extractValue(obj, "media-type") as? String)?.let { KeywordOrName(it) }
 
