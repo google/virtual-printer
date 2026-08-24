@@ -93,6 +93,15 @@ class PrinterService(private val context: Context) {
     private val jobIdCounter = AtomicInteger(1)
     private val printerUuid = PreferenceUtils.getPrinterUuid(context)
 
+    init {
+        // Automatically load the printer config on a background thread if present
+        CoroutineScope(Dispatchers.IO).launch {
+            IppAttributesUtils.loadIppAttributes(context, PreferenceUtils.CONFIG_FILE_NAME)?.let {
+                setCustomIppAttributes(it)
+            }
+        }
+    }
+
     /** Generates a unique, positive 31-bit Job ID */
     private fun generateJobId(): Int = jobIdCounter.getAndIncrement() and 0x7FFFFFFF
     
@@ -919,19 +928,10 @@ class PrinterService(private val context: Context) {
                 // Step 1: Get default attributes
                 val defaultResponse = createDefaultPrinterAttributesResponse(request)
                 
-                // Step 2: Apply custom attributes if set (overrides defaults)
+                // Step 2: Apply custom attributes if set (overlays defaults)
                 val withCustomAttributes = if (customIppAttributes != null) {
-                    Log.d(TAG, "Applying custom IPP attributes (priority 2)")
-                    IppPacket(
-                        Status.successfulOk,
-                        request.requestId,
-                        AttributeGroup.groupOf(
-                            Tag.operationAttributes,
-                            Types.attributesCharset.of("utf-8"),
-                            Types.attributesNaturalLanguage.of("en")
-                        ),
-                        *customIppAttributes!!.toTypedArray()
-                    )
+                    Log.d(TAG, "Overlaying custom IPP attributes (priority 2)")
+                    IppAttributesUtils.overlayAttributes(defaultResponse, customIppAttributes!!)
                 } else {
                     defaultResponse
                 }

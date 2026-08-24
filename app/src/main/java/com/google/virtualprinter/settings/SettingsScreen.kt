@@ -1130,30 +1130,19 @@ private fun handleExportAttributes(context: android.content.Context, uri: Uri, p
         val attributes = printerService.getCustomIppAttributes()
         if (attributes != null) {
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                val jsonArray = org.json.JSONArray()
-                
-                attributes.forEach { group ->
-                    val groupObj = org.json.JSONObject().apply {
-                        put("tag", group.tag.name)
-                        put("attributes", org.json.JSONArray().apply {
-                            IppAttributesUtils.getAttributesFromGroup(group).forEach { attr ->
-                                put(org.json.JSONObject().apply {
-                                    put("name", attr.name)
-                                    put("value", attr.toString())
-                                    put("type", "STRING") // Default type
-                                })
-                            }
-                        })
-                    }
-                    jsonArray.put(groupObj)
+                if (IppAttributesUtils.saveIppAttributes(outputStream, attributes)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "IPP attributes exported successfully",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Failed to export IPP attributes",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
                 }
-                
-                outputStream.write(jsonArray.toString().toByteArray())
-                android.widget.Toast.makeText(
-                    context,
-                    "IPP attributes exported successfully",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
             }
         } else {
             android.widget.Toast.makeText(

@@ -33,7 +33,7 @@ object PreferenceUtils {
     private const val KEY_PRINTER_UUID = "printer_uuid"
     private const val DEFAULT_PRINTER_NAME = "Android Virtual Printer"
     
-    private const val CONFIG_FILE_NAME = "printer_config.json"
+    const val CONFIG_FILE_NAME = "printer_config.json"
     private const val KEY_CONFIG_PRINTER_NAME = "printer_name"
     private const val KEY_CONFIG_PRINTER_UUID = "printer_uuid"
     private const val KEY_CONFIG_SUPPORTED_FORMATS = "supported_formats"

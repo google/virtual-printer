@@ -80,7 +80,7 @@ class PreferenceUtilsTest {
     fun getCustomPrinterName_returnsConfigFileValue_whenSharedPreferencesNotSet() {
         every { mockPrefs.getString("printer_name", null) } returns null
 
-        val configFile = File(filesDir, "printer_config.json")
+        val configFile = File(filesDir, PreferenceUtils.CONFIG_FILE_NAME)
         configFile.writeText(
             """
             {
@@ -106,7 +106,7 @@ class PreferenceUtilsTest {
 
     @Test
     fun getPrinterUuid_returnsConfigFileValue_whenConfigExists() {
-        val configFile = File(filesDir, "printer_config.json")
+        val configFile = File(filesDir, PreferenceUtils.CONFIG_FILE_NAME)
         configFile.writeText(
             """
             {
@@ -143,7 +143,7 @@ class PreferenceUtilsTest {
 
     @Test
     fun getSupportedFormats_returnsFormatsFromConfigFile() {
-        val configFile = File(filesDir, "printer_config.json")
+        val configFile = File(filesDir, PreferenceUtils.CONFIG_FILE_NAME)
         configFile.writeText(
             """
             {
@@ -177,7 +177,7 @@ class PreferenceUtilsTest {
 
     @Test
     fun getCompressionSupported_returnsCompressionFromConfigFile() {
-        val configFile = File(filesDir, "printer_config.json")
+        val configFile = File(filesDir, PreferenceUtils.CONFIG_FILE_NAME)
         configFile.writeText(
             """
             {
