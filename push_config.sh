@@ -14,6 +14,6 @@ filename="$1"
 user="$2"
 
 adb push $filename /data/user/$user/com.google.virtualprinter/files/printer_config.json
-uid=$(adb shell pm list packages -U --user $user com.google.virtualprinter | tr -d '\r' | sed 's/.*uid://')
+uid=$(adb shell pm list packages -U --user $user com.google.virtualprinter | tr -d '\r' | sed -ne 's/package:com.google.virtualprinter *uid:\([0-9][0-9]\)/\1/p')
 adb shell chown -R $uid:$uid /data/user/$user/com.google.virtualprinter/files
 adb shell restorecon -Rv /data/user/$user/com.google.virtualprinter/files/printer_config.json
